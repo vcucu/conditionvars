@@ -33,13 +33,15 @@ static pthread_cond_t conditionCons = PTHREAD_COND_INITIALIZER;
 pthread_t   t_list[NROF_PRODUCERS+2];
 
 int next = 0;
+int count = 0;
 
 /* producer thread */
 static void *
 producer (void * arg)
 {
     ITEM item = get_next_item();
-    printf("     I got an item %d\n", item);
+
+
     while (item < NROF_ITEMS)
     {
         // * get the new item
@@ -47,32 +49,31 @@ producer (void * arg)
                 rsleep (100);
         // mutex-lock;
 				pthread_mutex_lock (&mutex);
-				printf("     locking %d\n", item);
+				printf("     P:locking %d\n", item);
         //while not condition-for-this-producer
         //wait-cv;
 
-				while(buffer[(item%BUFFER_SIZE)] != -1)
+				while(buffer[(item%BUFFER_SIZE)] != -1 && count == 1)
 				{
-                        printf("     waiting for condition %d\n", item);
+            printf("     P:waiting for condition %d\n", item);
 						pthread_cond_wait (&conditionProd, &mutex);
 				}
-				printf("     inserting item %d into buffer\n", item);
+				printf("     P:inserting item %d into buffer\n", item);
 				buffer[(item%BUFFER_SIZE)] = item;
-
+				count++;
         //possible-cv-signals;
-                printf("     signaling to consumer %d\n", item);
+        printf("     P:signaling to consumer %d\n", item);
 				pthread_cond_signal (&conditionCons);
 
 				//mutex-unlock;
 				pthread_mutex_unlock (&mutex);
-				ITEM item = get_next_item();
+				item = get_next_item();
     }
 	return (NULL);
 }
 
 /* consumer thread */
-static void *
-consumer (void * arg)
+static void *consumer (void * arg)
 {
     while (next != NROF_ITEMS)
     {
@@ -89,10 +90,10 @@ consumer (void * arg)
         //critical-section;
 
 				ITEM item = buffer[next];
-				printf("          C: reading item\n", item);
-				printf("%d", item);
+				printf("          C: reading item %d\n", item);
 				buffer[next] = -1;
-				next ++;
+				next++;
+				//count--;
 				if (next == BUFFER_SIZE)
 				{
 						next = 0;
@@ -219,6 +220,7 @@ get_next_item(void)
     jobs[found] = true;
 
 	pthread_mutex_unlock (&job_mutex);
+	printf("Im returning %d\n", found);
 	return (found);
 }
 
