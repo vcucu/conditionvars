@@ -27,31 +27,33 @@ static ITEM buffer[BUFFER_SIZE];
 
 static void rsleep (int t);			// already implemented (see below)
 static ITEM get_next_item (void);	// already implemented (see below)
-
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t conditionProd = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t conditionCons = PTHREAD_COND_INITIALIZER;
+int next = 0;
 
 /* producer thread */
 static void * 
 producer (void * arg)
 {
-    while (true /* TODO: not all items produced */)
-    {
-        // TODO: 
+    while (get_next_item()!= NROF_ITEMS)
+    { 
         // * get the new item
-		
-        rsleep (100);	// simulating all kind of activities...
-		
-		// TODO:
-		// * put the item into buffer[]
-		//
-        // follow this pseudocode (according to the ConditionSynchronization lecture):
-        //      mutex-lock;
-        //      while not condition-for-this-producer
-        //          wait-cv;
-        //      critical-section;
-        //      possible-cv-signals;
-        //      mutex-unlock;
-        //
-        // (see condition_test() in condition_basics.c how to use condition variables)
+				ITEM item = get_next_item();
+        rsleep (100);
+        // mutex-lock;
+				pthread_mutex_lock (&mutex);
+        //while not condition-for-this-producer
+        //wait-cv;
+				while(buffer[item%BUFFER_SIZE] != -1) 
+				{
+						pthread_cond_wait (&conditionProd, &mutex);
+				}
+				buffer[item%BUFFER_SIZE] = item;
+        //possible-cv-signals;
+				pthread_cond_signal (&conditionCons);
+				//mutex-unlock;
+				pthread_mutex_unlock (&mutex);
     }
 	return (NULL);
 }
@@ -60,21 +62,31 @@ producer (void * arg)
 static void * 
 consumer (void * arg)
 {
-    while (true /* TODO: not all items retrieved from buffer[] */)
+    while (next != NROF_ITEMS)
     {
-        // TODO: 
-		// * get the next item from buffer[]
-		// * print the number to stdout
-        //
-        // follow this pseudocode (according to the ConditionSynchronization lecture):
-        //      mutex-lock;
-        //      while not condition-for-this-consumer
-        //          wait-cv;
-        //      critical-section;
-        //      possible-cv-signals;
-        //      mutex-unlock;
+        //mutex-lock;
+				pthread_mutex_lock (&mutex);
+        //while not condition-for-this-consumer
+				while (buffer[next] != -1) 
+				{
+		      //wait-cv;
+					pthread_cond_wait(&conditionCons, &mutex);
+				}
+        //critical-section;
+				ITEM item = buffer[next];
+				printf("%d", item);
+				buffer[next] = -1;
+				next ++;
+				if (next == BUFFER_SIZE) 
+				{
+						next = 0;
+				}
+        //possible-cv-signals;
+				pthread_cond_signal(&conditionProd);
+        //mutex-unlock;
+				pthread_mutex_unlock(&mutex);
 		
-        rsleep (100);		// simulating all kind of activities...
+        rsleep (100);
     }
 	return (NULL);
 }
@@ -83,8 +95,14 @@ int main (void)
 {
     // TODO: 
     // * startup the producer threads and the consumer thread
-    // * wait until all threads are finished  
-    
+		pthread_t consumerThread;
+		pthread_t producerThread;
+		pthread_create(&producerThread, NULL, producer, NULL);
+		pthread_create(&consumerThread, NULL, consumer, NULL);
+    // * wait until all threads are finished
+		pthread_join(consumerThread, NULL);
+		pthread_join(producerThread, NULL);
+  
     return (0);
 }
 
