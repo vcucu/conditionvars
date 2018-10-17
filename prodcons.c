@@ -2,8 +2,8 @@
  * Operating Systems  [2INCO]  Practical Assignment
  * Condition Variables Application
  *
- * STUDENT_NAME_1 (STUDENT_NR_1)
- * STUDENT_NAME_2 (STUDENT_NR_2)
+ * Veronika Cucorova (1013687)
+ * Diana Epureanu (0992861)
  *
  * Grading:
  * Students who hand in clean code that fully satisfies the minimum requirements will get an 8.
@@ -35,6 +35,29 @@ pthread_t   t_list[NROF_PRODUCERS+2];
 int next = 0;
 int count = 0;
 
+
+void put(ITEM item)
+{
+    printf("     P:inserting item %d into buffer\n", item);
+    buffer[(item%BUFFER_SIZE)] = item;
+    count++;
+}
+
+ITEM get()
+{
+    ITEM item = buffer[next%BUFFER_SIZE];
+    printf("          C: reading item %d\n", item);
+    buffer[next%BUFFER_SIZE] = -1;
+    next++;
+    count--;
+    //count--;
+   /* if (next == BUFFER_SIZE)
+    {
+            next = 0;
+    }*/
+    return item;
+}
+
 /* producer thread */
 static void *
 producer (void * arg)
@@ -53,17 +76,16 @@ producer (void * arg)
         //while not condition-for-this-producer
         //wait-cv;
 
-				while(buffer[(item%BUFFER_SIZE)] != -1 && count == 1)
+				while(count == BUFFER_SIZE)
 				{
-            printf("     P:waiting for condition %d\n", item);
+                        printf("     P:waiting for condition %d\n", item);
 						pthread_cond_wait (&conditionProd, &mutex);
 				}
-				printf("     P:inserting item %d into buffer\n", item);
-				buffer[(item%BUFFER_SIZE)] = item;
-				count++;
-        //possible-cv-signals;
-        printf("     P:signaling to consumer %d\n", item);
-				pthread_cond_signal (&conditionCons);
+
+				put(item);
+                //possible-cv-signals;
+                printf("     P:signaling to consumer %d\n", item);
+                pthread_cond_signal (&conditionCons);
 
 				//mutex-unlock;
 				pthread_mutex_unlock (&mutex);
@@ -81,23 +103,17 @@ static void *consumer (void * arg)
                 printf("          C: locking\n");
 				pthread_mutex_lock (&mutex);
         //while not condition-for-this-consumer
-				while (buffer[next] != -1)
+				while (count == 0 && (buffer[next%BUFFER_SIZE] != -1))
 				{
 		      //wait-cv;
                     printf("          C: waiting for condition\n");
 					pthread_cond_wait(&conditionCons, &mutex);
 				}
         //critical-section;
+                ITEM item = get();
+                printf("%d\n", item); //THE ONLY PRINT THAT SHOULD STAY IN SUBMISSION
+                printf("Next: %d\n", next);
 
-				ITEM item = buffer[next];
-				printf("          C: reading item %d\n", item);
-				buffer[next] = -1;
-				next++;
-				//count--;
-				if (next == BUFFER_SIZE)
-				{
-						next = 0;
-				}
         //possible-cv-signals;
 				pthread_cond_signal(&conditionProd);
         //mutex-unlock;
