@@ -28,11 +28,10 @@ static ITEM buffer[BUFFER_SIZE];
 static void rsleep (int t);			// already implemented (see below)
 static ITEM get_next_item (void);	// already implemented (see below)
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t conditionProd[NROF_PRODUCERS] = {PTHREAD_COND_INITIALIZER};
 static pthread_cond_t conditionCons = PTHREAD_COND_INITIALIZER;
-int sorted_producers[NROF_PRODUCERS+1];
-int sorted_items[NROF_PRODUCERS+1];
+pthread_t   t_list[NROF_PRODUCERS+2];
+int huge[NROF_ITEMS+1] = {-1};
 int next = 0;
 int count = 0;
 
@@ -41,58 +40,26 @@ typedef struct par{
 } param;
 
 
-void print_buffer()
-{
-    for (int i = 0; i < BUFFER_SIZE; i++)
-    {
-        printf("%d |",buffer[i]);
-    }
-    printf("\n");
-    for (int i = 0; i < NROF_PRODUCERS; i++)
-    {
-        printf("p%d,",sorted_producers[i]);
-        printf("i%d | ",sorted_items[i]);
-    }
-    printf("\n");
-
-}
-
-void initialize_buffer()
-{
-    for (int i = 0; i < BUFFER_SIZE; i++)
-    {
-        buffer[i] = -1;
-    }
-    for (int i = 0; i < NROF_PRODUCERS; i++)
-    {
-        sorted_items[i] = NROF_ITEMS+1;
-    }
-    printf("\n");
-}
 
 void put(ITEM item)
 {
     printf("     P:inserting item %d into buffer\n", item);
     buffer[(item%BUFFER_SIZE)] = item;
     count++;
-    print_buffer();
 }
 
 ITEM get()
 {
-    ITEM item = buffer[next % BUFFER_SIZE];
-    //printf("          C: reading item %d\n", item);
-    buffer[next %BUFFER_SIZE] = -1;
+    ITEM item = buffer[next%BUFFER_SIZE];
+    printf("          C: reading item %d\n", item);
+    buffer[next%BUFFER_SIZE] = -1;
     next++;
     count--;
-
-    for (int i = 1; i < NROF_PRODUCERS; i++)
+    //count--;
+   /* if (next == BUFFER_SIZE)
     {
-        sorted_items[i-1] = sorted_items[i];
-        sorted_producers[i-1] = sorted_producers[i];
-    }
-
-    print_buffer();
+            next = 0;
+    }*/
     return item;
 }
 
@@ -102,41 +69,30 @@ producer (void * arg)
 {
     ITEM item = get_next_item();
     int position = ((param *) arg)-> index;
-    //int index = ((param *) arg )-> index;
     free (arg);
-
 
     while (item < NROF_ITEMS)
     {
-                printf("Producer %d received value %d \n", position, item);
         // * get the new item
 
-        // mutex-lock;
-				pthread_mutex_lock (&status_mutex);
-				//printf("     P:locking %d\n", item);
-				int i = NROF_PRODUCERS -1;
-				while (item < sorted_items[i] && i>=0)
-				{
-                    sorted_items[i+1] = sorted_items[i];
-                    sorted_producers[i+1] = sorted_producers[i];
-                    i--;
-				}
-				sorted_items[i+1] = item;
-                sorted_producers[i+1] = position;
-                pthread_mutex_unlock (&status_mutex);
                 rsleep (100);
+        // mutex-lock;
+				pthread_mutex_lock (&mutex);
+				printf("     P:locking %d\n", item);
+
         //while not condition-for-this-producer
         //wait-cv;
-                pthread_mutex_lock (&mutex);
-				while(count == BUFFER_SIZE || (buffer[item%BUFFER_SIZE] != -1) || (next <= item - BUFFER_SIZE))
+                huge[item] = position;
+				while(next <= item - BUFFER_SIZE)
 				{
-                        printf("     P:waiting for condition %d\n", position);
+
+                        printf("     P:waiting for condition %d\n", item);
 						pthread_cond_wait (&conditionProd[position], &mutex);
 				}
 
 				put(item);
                 //possible-cv-signals;
-               // printf("     P:signaling to consumer %d\n", item);
+                printf("     P:signaling to consumer %d\n", item);
                 pthread_cond_signal (&conditionCons);
 
 				//mutex-unlock;
@@ -147,16 +103,15 @@ producer (void * arg)
 }
 
 /* consumer thread */
-static void *consumer ()
+static void *consumer (void * arg)
 {
-    //while (next != NROF_ITEMS)
-    for (int i = 0; i < NROF_ITEMS; i++)
+    while (next != NROF_ITEMS)
     {
         //mutex-lock;
-               // printf("          C: locking\n");
+                printf("          C: locking\n");
 				pthread_mutex_lock (&mutex);
         //while not condition-for-this-consumer
-				while (count == 0 || (buffer[next%BUFFER_SIZE] == -1))
+				while (count == 0 && (buffer[next%BUFFER_SIZE] != -1))
 				{
 		      //wait-cv;
                     printf("          C: waiting for condition\n");
@@ -164,13 +119,12 @@ static void *consumer ()
 				}
         //critical-section;
                 ITEM item = get();
-                printf("                                         %d\n", item); //THE ONLY PRINT THAT SHOULD STAY IN SUBMISSION
-                printf("          C: Next: %d\n", next);
+                printf("%d\n", item); //THE ONLY PRINT THAT SHOULD STAY IN SUBMISSION
+                printf("Next: %d\n", next);
 
         //possible-cv-signals;
-                printf("         Sinaling to thread %d", sorted_producers[0]);
-				pthread_cond_signal(&conditionProd[0]);
 
+				pthread_cond_signal(&conditionProd[huge[next]]);
         //mutex-unlock;
 				pthread_mutex_unlock(&mutex);
 
@@ -183,7 +137,6 @@ int main (void)
 {
     // TODO:
     // * startup the producer threads and the consumer thread
-    initialize_buffer();
     pthread_t consumerThread;
     pthread_t producerThread;
 
@@ -192,11 +145,11 @@ int main (void)
         param *  parameter;
         parameter = malloc(sizeof(param));
         parameter->index = i;
-        pthread_create (&producerThread, NULL, producer, (void *) parameter);
-        //printf("Creating producer %d\n", i);
+        pthread_create (&producerThread, NULL, producer, parameter);
+        printf("Creating producer %d\n", i);
     }
     pthread_create (&consumerThread, NULL, consumer, NULL);
-    //printf("Creating consumer %d\n", NROF_PRODUCERS);
+    printf("Creating consumer %d\n", NROF_PRODUCERS);
 
 
     // * wait until all threads are finished
@@ -298,5 +251,3 @@ get_next_item(void)
 	printf("Im returning %d\n", found);
 	return (found);
 }
-
-
